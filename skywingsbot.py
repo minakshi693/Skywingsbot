@@ -6,6 +6,7 @@ Advanced Telegram bot with AI/ML analysis for crypto trading signals
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv

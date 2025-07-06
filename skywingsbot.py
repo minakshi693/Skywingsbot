@@ -8,6 +8,8 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+from dotenv import load_dotenv
+load_dotenv()
 import json
 import requests
 import pandas as pd
@@ -20,6 +22,7 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import warnings
+
 warnings.filterwarnings('ignore')
 
 # Configure logging
@@ -31,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7175849534:AAFp2DqirGi_zWjEitHQi-zNi45Z-2qyXrc')
-COINGECKO_API_KEY = os.getenv('COINGECKO_API_KEY', '')
+MOBULA_API_KEY = os.getenv('MOBULA_API_KEY', '7685cb6b-fcc5-4ec3-b17a-f429ae90ae8d')
 NEWS_API_KEY = os.getenv('NEWS_API_KEY', '')
 
 class CryptoTradingBot:
@@ -61,39 +64,35 @@ class CryptoTradingBot:
         self.scaler = StandardScaler()
     
     def get_coin_data(self, coin_id: str, days: int = 30) -> Optional[pd.DataFrame]:
-        """Fetch historical price data for a cryptocurrency"""
+    
         try:
-            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+            url = "https://api.mobula.io/v1/market/history"
+            headers = {"Authorization": MOBULA_API_KEY} if MOBULA_API_KEY else {}
             params = {
-                'vs_currency': 'usd',
-                'days': days,
-                'interval': 'hourly' if days <= 30 else 'daily'
-            }
-            
-            if COINGECKO_API_KEY:
-                headers = {'x-cg-demo-api-key': COINGECKO_API_KEY}
-            else:
-                headers = {}
-            
-            response = requests.get(url, params=params, headers=headers)
+            "asset": coin_id,  # e.g., 'bitcoin', 'ethereum'
+            "time_range": f"{days}d"
+        }
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 429:
+                logger.info("Rate limit hit, waiting 60 seconds...")
+                time.sleep(60)
+                response = requests.get(url, headers=headers, params=params)
             response.raise_for_status()
-            
             data = response.json()
-            df = pd.DataFrame(data['prices'], columns=['timestamp', 'price'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('timestamp', inplace=True)
-            
-            # Add volume and market cap if available
-            if 'total_volumes' in data:
-                volume_df = pd.DataFrame(data['total_volumes'], columns=['timestamp', 'volume'])
-                volume_df['timestamp'] = pd.to_datetime(volume_df['timestamp'], unit='ms')
-                volume_df.set_index('timestamp', inplace=True)
-                df = df.join(volume_df)
-            
+            if not data.get("data"):
+                logger.error(f"No data returned for {coin_id}")
+                return None
+        # Process Mobula response into DataFrame
+            df = pd.DataFrame(data["data"]["history"], columns=["timestamp", "price"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df.set_index("timestamp", inplace=True)
+            # Add volume if available
+            if "volume" in data["data"]["history"][0]:
+                df["volume"] = [item["volume"] for item in data["data"]["history"]]
             return df
-            
+    
         except Exception as e:
-            logger.error(f"Error fetching data for {coin_id}: {e}")
+            logger.error(f"Error fetching Mobula data for {coin_id}: {e}")
             return None
     
     def calculate_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
